@@ -25,9 +25,13 @@ fn main() -> Result<()> {
         panic!("error: ANDROID_NDK_HOME must point to your NDK installation.");
     }
 
-    build_web_artifacts()?;
+    if env::var("SKIP_WEB").is_err() {
+        build_web_artifacts()?;
+    }
     build_android_jni()?;
-    build_robolectric_jni()?;
+    if env::var("SKIP_ROBOLECTRIC").is_err() {
+        build_robolectric_jni()?;
+    }
     run_gradle()?;
 
     println!();
@@ -47,8 +51,11 @@ fn run_gradle() -> Result<()> {
             Command::new("./gradlew")
         };
         cmd.env("RUNNING_FROM_BUILD_SCRIPT", "1")
-            .args(["assembleRelease", "rsdroid-testing:build"])
-            .ensure_success()?;
+            .arg("assembleRelease");
+        if env::var("SKIP_ROBOLECTRIC").is_err() {
+            cmd.arg("rsdroid-testing:build");
+        }
+        cmd.ensure_success()?;
     }
     Ok(())
 }
@@ -189,7 +196,14 @@ fn build_android_jni() -> Result<()> {
     if is_release {
         command.arg("--release");
     }
-    command.env("RUSTFLAGS", "-C link-args=-Wl,-z,max-page-size=16384");
+    // ANDROID_RUSTFLAGS: extra flags, e.g. --remap-path-prefix=$HOME=/build to keep the build
+    // machine's paths out of the library
+    let mut rustflags = String::from("-C link-args=-Wl,-z,max-page-size=16384");
+    if let Ok(extra) = env::var("ANDROID_RUSTFLAGS") {
+        rustflags.push(' ');
+        rustflags.push_str(&extra);
+    }
+    command.env("RUSTFLAGS", rustflags);
     command.ensure_success()?;
 
     Ok(())
@@ -207,6 +221,20 @@ fn check_release(force_release_on_windows: bool) -> (bool, &'static str) {
 
 /// Returns target list to pass to cargo ndk
 fn add_android_rust_targets(all_archs: bool) -> Result<&'static [&'static str]> {
+    // ANDROID_ARCH=arm64 builds only aarch64 (for sideloading onto a physical phone)
+    if let Ok(arch) = env::var("ANDROID_ARCH") {
+        return Ok(match arch.as_str() {
+            "arm64" | "arm64-v8a" | "aarch64" => {
+                add_rust_targets(&["aarch64-linux-android"])?;
+                &["-t", "arm64-v8a"]
+            }
+            "x86_64" => {
+                add_rust_targets(&["x86_64-linux-android"])?;
+                &["-t", "x86_64"]
+            }
+            other => panic!("unsupported ANDROID_ARCH: {other}"),
+        });
+    }
     Ok(if all_archs {
         add_rust_targets(&[
             "armv7-linux-androideabi",
