@@ -25,9 +25,7 @@ fn main() -> Result<()> {
         panic!("error: ANDROID_NDK_HOME must point to your NDK installation.");
     }
 
-    if env::var("SKIP_WEB").is_err() {
-        build_web_artifacts()?;
-    }
+    build_web_artifacts()?;
     build_android_jni()?;
     if env::var("SKIP_ROBOLECTRIC").is_err() {
         build_robolectric_jni()?;
@@ -227,10 +225,6 @@ fn add_android_rust_targets(all_archs: bool) -> Result<&'static [&'static str]> 
             "arm64" | "arm64-v8a" | "aarch64" => {
                 add_rust_targets(&["aarch64-linux-android"])?;
                 &["-t", "arm64-v8a"]
-            }
-            "x86_64" => {
-                add_rust_targets(&["x86_64-linux-android"])?;
-                &["-t", "x86_64"]
             }
             other => panic!("unsupported ANDROID_ARCH: {other}"),
         });
